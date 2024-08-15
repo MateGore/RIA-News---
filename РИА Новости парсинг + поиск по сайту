@@ -1,0 +1,75 @@
+import telebot
+import requests
+from bs4 import BeautifulSoup
+
+# Ваш токен для Telegram Bot API
+API_TOKEN = 'DFI NJRTY'
+
+bot = telebot.TeleBot(API_TOKEN)
+
+# Заголовки для имитации запроса от браузера(лучше оставить, также может быть предупрежденеи о опасном соединении)
+headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.102 Safari/537.36 Edge/18.19582',
+}
+
+# Функция для парсинга новостей с сайта РИА Новости
+def get_news(query):
+    url = f'https://ria.ru/search/?query={query}'
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=30, verify=False)
+        
+        if response.status_code != 200:
+            print("Сайт новостей - Недоступен! (/нв)")
+            return ["Ошибка: Сайт новостей недоступен."]
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+
+        # Поиск всех элементов с заголовками и ссылками на новости
+        items = soup.find_all('div', class_='list-item__content', limit=15)  # Увеличено до 15
+        
+        news_list = []
+        main_topic = None
+        
+        for item in items:
+            # Поиск ссылки с заголовком
+            title_tag = item.find('a', class_='list-item__title')
+            if title_tag:
+                title = title_tag.get_text(strip=True)
+                link = title_tag['href']
+                if "Главные темы часа" in title:
+                    # Если нашли "Главные темы часа", сохраняем его отдельно
+                    main_topic = f"<b>{title}</b>\nСсылка: {link}"
+                else:
+                    # Иначе добавляем в общий список
+                    news_list.append(f"{title}\nСсылка: {link}")
+        
+        # Если нашли раздел "Главные темы часа", добавляем его в начало
+        if main_topic:
+            news_list.insert(0, main_topic)
+        
+        return news_list
+    
+    except requests.exceptions.RequestException as e:
+        print(f"Произошла ошибка: {e}")
+        return ["Ошибка: Не удалось получить новости."]
+
+# Обработчик команды /нв
+@bot.message_handler(commands=['нв'])
+def send_news(message):
+    try:
+        # Получаем ключ поиска из сообщения
+        query = message.text.split('/нв ')[1]
+        news = get_news(query)
+        
+        if news:
+            # Отправляем пользователю до 15 новостей без превью ссылок
+            for news_item in news:
+                bot.send_message(message.chat.id, news_item, disable_web_page_preview=True, parse_mode='HTML')
+        else:
+            bot.send_message(message.chat.id, "Новости не найдены.")
+    except Exception as e:
+        bot.send_message(message.chat.id, "Произошла ошибка: " + str(e))
+
+# Запуск бота
+bot.polling()
